@@ -38,7 +38,6 @@ public class AuthController {
     public AuthController(AuthService authService) {
         this.authService = authService;
     }
-
     /**
      * 用户注册接口。
      *

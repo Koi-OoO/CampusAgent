@@ -26,7 +26,8 @@ public class WebConfig implements WebMvcConfigurer {
     // 无需登录即可访问的接口白名单，当前固定为登录和注册接口。
     private static final List<String> WHITE_LIST_PATHS = List.of(
             "/api/auth/login",
-            "/api/auth/register"
+            "/api/auth/register",
+            "/api/category/list"
     );
 
     // JWT 工具类，用于拦截器中 Token 的解析和校验。
