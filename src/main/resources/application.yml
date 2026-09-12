@@ -1,0 +1,97 @@
+# ==================== 通用配置 ====================
+server:
+  port: 8080
+
+spring:
+  application:
+    name: CampusAgent
+
+  profiles:
+    active: "${SPRING_PROFILES_ACTIVE:dev}"
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # Spring Boot 3 的 Redis 配置前缀为 spring.data.redis
+  data:
+    redis:
+      database: 0
+      connect-timeout: 5s
+      timeout: 5s
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.campusagent.entity
+
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+  global-config:
+    db-config:
+      # 实体类中的逻辑删除属性名
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+jwt:
+  # 单位：毫秒，7 × 24 × 60 × 60 × 1000
+  expiration: 604800000
+
+---
+# ==================== 开发环境 ====================
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+  datasource:
+    url: "jdbc:mysql://localhost:3306/campus?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+    username: root
+    password: "123456"
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: ""
+
+logging:
+  level:
+    # 输出 Mapper 的 SQL 及绑定参数
+    com.campusagent.mapper: DEBUG
+
+jwt:
+  # 仅供本地开发；Base64 解码后为 32 字节，满足 HS256 密钥长度要求
+  secret: "Y2FtcHVzLWFnZW50LWRldi1zZWNyZXQtMzItYnl0ZXM="
+
+---
+# ==================== 生产环境 ====================
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+  datasource:
+    # DB_URL 必须是完整 JDBC URL
+    url: "${DB_URL}"
+    username: "${DB_USERNAME}"
+    password: "${DB_PASSWORD}"
+
+  data:
+    redis:
+      host: "${REDIS_HOST}"
+      port: "${REDIS_PORT:6379}"
+      password: "${REDIS_PASSWORD}"
+
+logging:
+  level:
+    # 生产环境默认不输出 SQL 参数
+    com.campusagent.mapper: INFO
+
+jwt:
+  # 使用独立随机密钥的 Base64 编码，解码后至少 32 字节
+  secret: "${JWT_SECRET}"

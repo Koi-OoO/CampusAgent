@@ -1,0 +1,30 @@
+# Maven build output
+target/
+
+# IDE and editor files
+.idea/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+.vscode/
+
+# Local assistant settings
+.claude/
+
+# Local environment files and configuration overrides
+.env
+.env.*
+!.env.example
+!.env.sample
+src/main/resources/application-local.yml
+src/main/resources/application-local.yaml
+src/main/resources/application-local.properties
+
+# Logs and operating-system files
+logs/
+*.log
+.DS_Store
+Thumbs.db
