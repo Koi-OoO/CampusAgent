@@ -1,6 +1,7 @@
 package com.campusagent.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.campusagent.common.exception.BusinessException;
 import com.campusagent.entity.Activity;
 
 import java.util.List;
@@ -10,7 +11,7 @@ import java.util.List;
  *
  * <p>本阶段使用 Activity 承载创建和修改请求中的可编辑资料，操作人身份单独传入。
  * 主键、发布人、状态、统计值及审计字段由服务端管理，不能直接信任请求中的这些值。
- * 本接口声明的业务方法均在 Phase 2-3 实现。</p>
+ * 当前提供草稿创建、提交审核、修改、删除及发布列表查询，其余业务方法保留占位实现。</p>
  */
 public interface ActivityService extends IService<Activity> {
 
@@ -19,7 +20,7 @@ public interface ActivityService extends IService<Activity> {
      *
      * @param request 活动创建请求，仅使用可编辑的活动资料
      * @param userId 当前登录用户的主键，用于确定活动发布人
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @throws BusinessException 时间或人数不合法，或者草稿保存失败
      */
     void createDraft(Activity request, Long userId);
 
@@ -28,7 +29,7 @@ public interface ActivityService extends IService<Activity> {
      *
      * @param activityId 待提交审核的活动主键
      * @param userId 当前登录用户的主键
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @throws BusinessException 活动不存在、用户不是发布人或活动状态不可提交
      */
     void submitForAudit(Long activityId, Long userId);
 
@@ -38,7 +39,7 @@ public interface ActivityService extends IService<Activity> {
      * @param activityId 待修改的活动主键，以此参数确定目标活动
      * @param request 活动修改请求，仅使用可编辑的活动资料
      * @param userId 当前登录用户的主键
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @throws BusinessException 活动不存在、用户不是发布人或状态、时间、人数不符合规则
      */
     void updateActivity(Long activityId, Activity request, Long userId);
 
@@ -47,7 +48,7 @@ public interface ActivityService extends IService<Activity> {
      *
      * @param activityId 待删除的活动主键
      * @param userId 当前登录用户的主键
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @throws BusinessException 活动不存在、用户不是发布人或活动不是草稿
      */
     void deleteActivity(Long activityId, Long userId);
 
@@ -61,11 +62,10 @@ public interface ActivityService extends IService<Activity> {
     Activity getActivityDetail(Long activityId);
 
     /**
-     * 查询指定用户发布的活动列表。
+     * 查询当前用户发布的全部未删除活动，按创建时间倒序返回。
      *
      * @param userId 当前登录用户的主键
-     * @return 当前用户发布的活动列表
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @return 当前用户发布的活动列表，没有活动时返回空列表
      */
     List<Activity> getMyPublished(Long userId);
 
