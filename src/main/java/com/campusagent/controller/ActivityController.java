@@ -1,9 +1,12 @@
 package com.campusagent.controller;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.campusagent.common.result.Result;
 import com.campusagent.constant.RequestAttributeConstants;
 import com.campusagent.dto.request.ActivityCreateRequest;
 import com.campusagent.dto.request.ActivityUpdateRequest;
+import com.campusagent.dto.response.ActivityDetailResponse;
+import com.campusagent.dto.response.ActivityListResponse;
 import com.campusagent.entity.Activity;
 import com.campusagent.service.ActivityService;
 import jakarta.validation.Valid;
@@ -16,14 +19,17 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
 /**
- * 活动发布控制器，提供草稿创建、提交审核、修改、删除及当前用户的活动列表接口。
+ * 活动控制器，提供用户端活动列表与详情，以及发布人的草稿创建、提交审核、修改、删除和活动列表接口。
  *
- * <p>所有接口沿用登录拦截器，用户主键从已验证的请求属性中获取。
+ * <p>用户端列表接口位于拦截器白名单中，无需登录即可访问；
+ * 活动详情需要登录，以便返回当前用户的报名状态。
+ * 发布相关接口沿用登录拦截器，用户主键从已验证的请求属性中获取。
  * 请求 DTO 仅包含可编辑字段，转换为活动实体后交由服务层执行业务校验。</p>
  */
 @RestController
@@ -42,6 +48,38 @@ public class ActivityController {
      */
     public ActivityController(ActivityService activityService) {
         this.activityService = activityService;
+    }
+
+    /**
+     * 用户端公开活动列表接口，无需登录。
+     *
+     * @param categoryId 活动分类主键，可选
+     * @param keyword 活动标题关键词，可选
+     * @param status 活动状态编码（3/4/5），可选
+     * @param page 页码，从 1 开始，默认查询第一页
+     * @param size 每页条数，默认为 10
+     * @return 公开活动分页结果
+     */
+    @GetMapping("/list")
+    public Result<IPage<ActivityListResponse>> getPublicList(@RequestParam(required = false) Integer categoryId,
+                                                             @RequestParam(required = false) String keyword,
+                                                             @RequestParam(required = false) Integer status,
+                                                             @RequestParam(defaultValue = "1") Integer page,
+                                                             @RequestParam(defaultValue = "10") Integer size) {
+        return Result.success(activityService.getPublicList(categoryId, keyword, status, page, size));
+    }
+
+    /**
+     * 用户端活动详情接口，需要登录以返回当前用户的报名状态。
+     *
+     * @param id 活动主键
+     * @param userId 当前登录用户主键，由登录拦截器写入请求属性
+     * @return 活动详情，包含分类名称、发布人姓名及当前用户报名状态
+     */
+    @GetMapping("/{id}")
+    public Result<ActivityDetailResponse> getActivityDetail(@PathVariable Long id,
+                                                            @RequestAttribute(RequestAttributeConstants.USER_ID) Long userId) {
+        return Result.success(activityService.getActivityDetail(id, userId));
     }
 
     /**

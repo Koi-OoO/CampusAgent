@@ -23,12 +23,13 @@ public class WebConfig implements WebMvcConfigurer {
     // 登录拦截器的生效路径，匹配所有以 /api 开头的接口路径。
     private static final List<String> INTERCEPT_PATHS = List.of("/api/**");
 
-    // 无需登录即可访问的接口白名单，当前固定为登录和注册接口。
+    // 无需登录即可访问的接口白名单，包含认证接口及公开查询接口。
     private static final List<String> WHITE_LIST_PATHS = List.of(
             "/api/auth/login",
             "/api/auth/register",
             "/api/category/list",
-            "/api/template/list"
+            "/api/template/list",
+            "/api/activity/list"
     );
 
     // JWT 工具类，用于拦截器中 Token 的解析和校验。
