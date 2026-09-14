@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.campusagent.enums.UserRoleEnum;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import lombok.ToString;
 
@@ -35,8 +36,12 @@ public class User {
 
     /**
      * 密码存储值，后续注册业务应写入密码哈希，避免在字符串日志中输出此字段。
+     *
+     * <p>字段上的 JsonIgnore 使实体参与 JSON 序列化时跳过密码，
+     * 防止用户分页等接口将密码哈希泄露到响应体中。</p>
      */
     @ToString.Exclude
+    @JsonIgnore
     private String password;
 
     /**
