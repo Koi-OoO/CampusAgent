@@ -28,7 +28,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE, properties = {
         "spring.datasource.url=jdbc:mysql://127.0.0.1:3306/campus?useUnicode=true&characterEncoding=UTF-8"
                 + "&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true",
-        "logging.level.com.campusagent.mapper=INFO"
+        "logging.level.com.campusagent.mapper=INFO",
+        // knife4j 自动配置与无 Web 环境的测试上下文冲突，测试中禁用。
+        "knife4j.enable=false"
 })
 @ActiveProfiles("dev")
 @Transactional

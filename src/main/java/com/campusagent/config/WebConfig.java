@@ -27,7 +27,8 @@ public class WebConfig implements WebMvcConfigurer {
     private static final List<String> WHITE_LIST_PATHS = List.of(
             "/api/auth/login",
             "/api/auth/register",
-            "/api/category/list"
+            "/api/category/list",
+            "/api/template/list"
     );
 
     // JWT 工具类，用于拦截器中 Token 的解析和校验。
