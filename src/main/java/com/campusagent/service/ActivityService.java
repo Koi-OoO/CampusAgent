@@ -1,5 +1,6 @@
 package com.campusagent.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.campusagent.common.exception.BusinessException;
 import com.campusagent.entity.Activity;
@@ -11,7 +12,7 @@ import java.util.List;
  *
  * <p>本阶段使用 Activity 承载创建和修改请求中的可编辑资料，操作人身份单独传入。
  * 主键、发布人、状态、统计值及审计字段由服务端管理，不能直接信任请求中的这些值。
- * 当前提供草稿创建、提交审核、修改、删除及发布列表查询，其余业务方法保留占位实现。</p>
+ * 当前提供活动发布、管理员审核与取消及待审核列表查询，详情和公开列表保留占位实现。</p>
  */
 public interface ActivityService extends IService<Activity> {
 
@@ -70,12 +71,21 @@ public interface ActivityService extends IService<Activity> {
     List<Activity> getMyPublished(Long userId);
 
     /**
-     * 查询待审核的活动列表。
+     * 查询全部待审核活动，按创建时间升序返回。
      *
-     * @return 等待审核的活动列表
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @return 等待审核的活动列表，没有活动时返回空列表
      */
     List<Activity> getAuditList();
+
+    /**
+     * 分页查询待审核活动，按创建时间升序返回。
+     *
+     * @param page 页码，从 1 开始
+     * @param size 每页条数，必须大于零
+     * @return 包含待审核活动记录、总数及分页信息的结果
+     * @throws BusinessException 页码或每页条数为空或不大于零
+     */
+    IPage<Activity> getAuditListPage(Integer page, Integer size);
 
     /**
      * 审核活动，记录审核结果及审核说明。
@@ -84,7 +94,7 @@ public interface ActivityService extends IService<Activity> {
      * @param result 审核结果编码，表示审核通过或驳回
      * @param reason 审核说明，驳回时填写驳回理由
      * @param operatorId 当前执行审核的操作人主键
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @throws BusinessException 活动不存在、状态或审核参数不合法、并发状态冲突或审核记录保存失败
      */
     void auditActivity(Long activityId, Integer result, String reason, Long operatorId);
 
@@ -94,7 +104,7 @@ public interface ActivityService extends IService<Activity> {
      * @param activityId 待取消的活动主键
      * @param reason 活动取消理由
      * @param operatorId 当前执行取消操作的用户主键
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @throws BusinessException 活动不存在、状态或取消理由不合法，或者发生并发状态冲突
      */
     void cancelActivity(Long activityId, String reason, Long operatorId);
 

@@ -2,21 +2,26 @@ package com.campusagent.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.campusagent.common.exception.BusinessException;
 import com.campusagent.common.result.ResultCode;
 import com.campusagent.entity.Activity;
+import com.campusagent.entity.ActivityAuditLog;
 import com.campusagent.enums.ActivityStatusEnum;
+import com.campusagent.mapper.ActivityAuditLogMapper;
 import com.campusagent.mapper.ActivityMapper;
 import com.campusagent.service.ActivityService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 活动发布服务实现，负责草稿创建、提交审核、修改、删除及发布列表查询。
+ * 活动服务实现，负责活动发布、管理员审核与取消以及发布和待审核列表查询。
  *
  * <p>活动归属、状态、时间和人数限制统一在服务层校验，其余业务方法保留占位实现。</p>
  */
@@ -35,13 +40,27 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     /** 不限制报名人数时使用的上限值。 */
     private static final int UNLIMITED_PARTICIPANTS = 0;
 
+    /** 审核通过的结果编码。 */
+    private static final int AUDIT_APPROVED = 1;
+
+    /** 审核驳回的结果编码。 */
+    private static final int AUDIT_REJECTED = 2;
+
+    /** 审核理由及取消理由允许的最大字符数。 */
+    private static final int MAX_REASON_LENGTH = 200;
+
+    /** 审核记录数据访问接口，与活动状态更新使用同一事务。 */
+    private final ActivityAuditLogMapper activityAuditLogMapper;
+
     /**
-     * 创建活动服务，通过构造器注入父类所需的数据访问接口。
+     * 创建活动服务，通过构造器注入活动及审核记录数据访问接口。
      *
      * @param activityMapper 活动数据访问接口
+     * @param activityAuditLogMapper 审核记录数据访问接口
      */
-    public ActivityServiceImpl(ActivityMapper activityMapper) {
+    public ActivityServiceImpl(ActivityMapper activityMapper, ActivityAuditLogMapper activityAuditLogMapper) {
         this.baseMapper = activityMapper;
+        this.activityAuditLogMapper = activityAuditLogMapper;
     }
 
     /**
@@ -223,41 +242,125 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     }
 
     /**
-     * 查询待审核活动列表的占位实现。
+     * 查询全部未删除的待审核活动，按创建时间升序返回。
      *
-     * @return 等待审核的活动列表，当前阶段统一抛出未实现异常
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @return 等待审核的活动列表，没有活动时返回空列表
      */
     @Override
     public List<Activity> getAuditList() {
-        throw new UnsupportedOperationException("待 Phase 2-3 实现");
+        return list(buildAuditQueryWrapper());
     }
 
     /**
-     * 审核活动的占位实现。
+     * 分页查询未删除的待审核活动，按创建时间升序返回并统计总数。
+     *
+     * @param page 页码，从 1 开始
+     * @param size 每页条数，必须大于零
+     * @return 待审核活动的分页结果
+     * @throws BusinessException 页码或每页条数为空或不大于零
+     */
+    @Override
+    public IPage<Activity> getAuditListPage(Integer page, Integer size) {
+        if (page == null || page < 1) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "页码必须大于 0");
+        }
+        if (size == null || size < 1) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "每页条数必须大于 0");
+        }
+        return page(new Page<Activity>(page, size), buildAuditQueryWrapper());
+    }
+
+    /**
+     * 审核待审核活动，并在同一事务中写入审核记录。
+     *
+     * <p>更新时要求活动仍为待审核状态，防止并发审核重复写入结果或记录。</p>
      *
      * @param activityId 待审核的活动主键
      * @param result 审核结果编码，表示审核通过或驳回
      * @param reason 审核说明，驳回时填写驳回理由
      * @param operatorId 当前执行审核的操作人主键
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @throws BusinessException 活动不存在、状态或审核参数不合法、并发状态冲突或审核记录保存失败
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void auditActivity(Long activityId, Integer result, String reason, Long operatorId) {
-        throw new UnsupportedOperationException("待 Phase 2-3 实现");
+        Activity activity = getById(activityId);
+        if (activity == null) {
+            throw new BusinessException(ResultCode.DATA_NOT_FOUND);
+        }
+        if (activity.getStatus() != ActivityStatusEnum.PENDING_AUDIT) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "当前状态不可审核");
+        }
+        if (result == null || (result != AUDIT_APPROVED && result != AUDIT_REJECTED)) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "审核结果不合法");
+        }
+        if (result == AUDIT_REJECTED && !StringUtils.hasText(reason)) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "驳回时必须填写理由");
+        }
+        if (reason != null && reason.length() > MAX_REASON_LENGTH) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "审核理由长度不能超过 200 个字符");
+        }
+        if (operatorId == null) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "审核人不能为空");
+        }
+
+        boolean approved = result == AUDIT_APPROVED;
+        LambdaUpdateWrapper<Activity> updateWrapper = new LambdaUpdateWrapper<Activity>()
+                .eq(Activity::getId, activityId)
+                .eq(Activity::getStatus, ActivityStatusEnum.PENDING_AUDIT)
+                .set(Activity::getStatus, approved ? ActivityStatusEnum.NOT_STARTED : ActivityStatusEnum.REJECTED)
+                // 显式写入 NULL，确保通过审核后清除已有的驳回理由。
+                .set(Activity::getRejectReason, approved ? null : reason);
+        if (!update(updateWrapper)) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "活动状态已变化，请刷新后重试");
+        }
+
+        ActivityAuditLog auditLog = new ActivityAuditLog();
+        auditLog.setActivityId(activityId);
+        auditLog.setOperatorId(operatorId);
+        auditLog.setResult(result);
+        auditLog.setReason(reason);
+        if (activityAuditLogMapper.insert(auditLog) != 1) {
+            throw new BusinessException(ResultCode.SYSTEM_ERROR, "审核记录保存失败");
+        }
     }
 
     /**
-     * 取消活动的占位实现。
+     * 在事务中取消未开始或进行中的活动，并保存取消理由。
+     *
+     * <p>更新条件包含读取时的原状态，避免并发状态变化被取消操作覆盖。</p>
      *
      * @param activityId 待取消的活动主键
      * @param reason 活动取消理由
      * @param operatorId 当前执行取消操作的用户主键
-     * @throws UnsupportedOperationException 当前阶段尚未实现该方法
+     * @throws BusinessException 活动不存在、状态或取消理由不合法，或者发生并发状态冲突
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void cancelActivity(Long activityId, String reason, Long operatorId) {
-        throw new UnsupportedOperationException("待 Phase 2-3 实现");
+        Activity activity = getById(activityId);
+        if (activity == null) {
+            throw new BusinessException(ResultCode.DATA_NOT_FOUND);
+        }
+        ActivityStatusEnum status = activity.getStatus();
+        if (status != ActivityStatusEnum.NOT_STARTED && status != ActivityStatusEnum.IN_PROGRESS) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "当前状态不可取消");
+        }
+        if (!StringUtils.hasText(reason)) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "取消理由不能为空");
+        }
+        if (reason.length() > MAX_REASON_LENGTH) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "取消理由长度不能超过 200 个字符");
+        }
+
+        LambdaUpdateWrapper<Activity> updateWrapper = new LambdaUpdateWrapper<Activity>()
+                .eq(Activity::getId, activityId)
+                .eq(Activity::getStatus, status)
+                .set(Activity::getStatus, ActivityStatusEnum.CANCELLED)
+                .set(Activity::getCancelReason, reason);
+        if (!update(updateWrapper)) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "活动状态已变化，请刷新后重试");
+        }
     }
 
     /**
@@ -271,6 +374,18 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     @Override
     public List<Activity> getPublicList(Integer categoryId, String keyword) {
         throw new UnsupportedOperationException("待 Phase 2-3 实现");
+    }
+
+    /**
+     * 构建待审核活动查询条件，按创建时间及主键升序保持分页顺序稳定。
+     *
+     * @return 仅匹配待审核状态的活动查询条件，逻辑删除条件由框架自动追加
+     */
+    private LambdaQueryWrapper<Activity> buildAuditQueryWrapper() {
+        return new LambdaQueryWrapper<Activity>()
+                .eq(Activity::getStatus, ActivityStatusEnum.PENDING_AUDIT)
+                .orderByAsc(Activity::getCreateTime)
+                .orderByAsc(Activity::getId);
     }
 
     /**

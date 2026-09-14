@@ -11,6 +11,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @MapperScan("com.campusagent.mapper")
 public class CampusAgentApplication {
 
+    /**
+     * 启动校园综合服务平台。
+     *
+     * @param args 应用启动参数
+     */
     public static void main(String[] args) {
         SpringApplication.run(CampusAgentApplication.class, args);
     }
