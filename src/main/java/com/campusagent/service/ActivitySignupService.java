@@ -53,4 +53,29 @@ public interface ActivitySignupService extends IService<ActivitySignup> {
      * @return 报名状态枚举，未报名时返回 null
      */
     SignupStatusEnum getUserSignupStatus(Long activityId, Long userId);
+
+    /**
+     * 为当前用户办理活动签到。
+     *
+     * @param activityId 待签到的活动主键
+     * @param userId 当前登录用户的主键
+     * @throws BusinessException 报名记录不存在、报名状态不可签到、活动未开始或已结束、
+     *                            或并发状态更新失败
+     */
+    void checkin(Long activityId, Long userId);
+
+    /**
+     * 分页查询指定活动的报名名单。
+     *
+     * <p>仅活动发布者本人、管理员和超级管理员可以查询，查询结果按报名时间和报名记录主键升序返回。</p>
+     *
+     * @param activityId 活动主键
+     * @param operatorId 当前操作人的用户主键
+     * @param status 报名状态编码，为 null 时查询全部状态
+     * @param page 页码，从 1 开始
+     * @param size 每页条数，必须大于零
+     * @return 指定活动的报名记录分页结果
+     * @throws BusinessException 分页参数、状态编码、活动或操作人不合法，或操作人无权限
+     */
+    IPage<ActivitySignup> getSignupList(Long activityId, Long operatorId, Integer status, Integer page, Integer size);
 }

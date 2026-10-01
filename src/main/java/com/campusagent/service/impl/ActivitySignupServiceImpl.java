@@ -9,16 +9,20 @@ import com.campusagent.common.exception.BusinessException;
 import com.campusagent.common.result.ResultCode;
 import com.campusagent.entity.Activity;
 import com.campusagent.entity.ActivitySignup;
+import com.campusagent.entity.User;
 import com.campusagent.enums.ActivityStatusEnum;
 import com.campusagent.enums.SignupStatusEnum;
+import com.campusagent.enums.UserRoleEnum;
 import com.campusagent.mapper.ActivitySignupMapper;
 import com.campusagent.service.ActivityService;
 import com.campusagent.service.ActivitySignupService;
+import com.campusagent.service.UserService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * 活动报名服务实现，负责报名、取消报名、我的报名列表及报名状态查询。
@@ -34,18 +38,27 @@ public class ActivitySignupServiceImpl extends ServiceImpl<ActivitySignupMapper,
     /** 不限制报名人数时使用的人数上限值。 */
     private static final int UNLIMITED_PARTICIPANTS = 0;
 
+    /** 报名名单查询允许的最大分页大小。 */
+    private static final int MAX_SIGNUP_LIST_PAGE_SIZE = 100;
+
     /** 活动服务，用于查询活动信息及原子更新报名人数。 */
     private final ActivityService activityService;
 
+    /** 用户服务，用于校验报名名单查询操作人的身份和权限。 */
+    private final UserService userService;
+
     /**
-     * 创建活动报名服务，通过构造器注入数据访问接口及活动服务。
+     * 创建活动报名服务，通过构造器注入数据访问接口、活动服务及用户服务。
      *
      * @param activitySignupMapper 活动报名记录数据访问接口
      * @param activityService 活动服务
+     * @param userService 用户服务
      */
-    public ActivitySignupServiceImpl(ActivitySignupMapper activitySignupMapper, ActivityService activityService) {
+    public ActivitySignupServiceImpl(ActivitySignupMapper activitySignupMapper, ActivityService activityService,
+                                     UserService userService) {
         this.baseMapper = activitySignupMapper;
         this.activityService = activityService;
+        this.userService = userService;
     }
 
     /**
@@ -222,5 +235,116 @@ public class ActivitySignupServiceImpl extends ServiceImpl<ActivitySignupMapper,
                 .eq(ActivitySignup::getUserId, userId);
         ActivitySignup signup = getOne(queryWrapper);
         return signup == null ? null : signup.getStatus();
+    }
+
+    /**
+     * 为当前用户办理活动签到。
+     *
+     * <p>签到只允许报名记录处于待签到状态且活动正在进行中；
+     * 最终更新条件再次限制待签到状态，避免并发签到或其他状态变更造成重复处理。</p>
+     *
+     * @param activityId 待签到的活动主键
+     * @param userId 当前登录用户的主键
+     * @throws BusinessException 报名记录不存在、状态不可签到、活动不存在或未进行中、
+     *                            或并发状态更新失败
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void checkin(Long activityId, Long userId) {
+        // 只查询当前用户对指定活动的未逻辑删除报名记录。
+        LambdaQueryWrapper<ActivitySignup> queryWrapper = new LambdaQueryWrapper<ActivitySignup>()
+                .eq(ActivitySignup::getActivityId, activityId)
+                .eq(ActivitySignup::getUserId, userId);
+        ActivitySignup signup = getOne(queryWrapper);
+        if (signup == null) {
+            throw new BusinessException(ResultCode.DATA_NOT_FOUND);
+        }
+        // 只有待签到报名记录可以执行签到。
+        if (signup.getStatus() != SignupStatusEnum.PENDING) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "当前状态不可签到");
+        }
+
+        // 活动必须处于进行中状态，未开始、已结束和已取消均不可签到。
+        Activity activity = activityService.getById(activityId);
+        if (activity == null) {
+            throw new BusinessException(ResultCode.DATA_NOT_FOUND);
+        }
+        if (activity.getStatus() != ActivityStatusEnum.IN_PROGRESS) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "活动未开始或已结束");
+        }
+
+        // 以报名记录主键和待签到状态作为并发更新条件，避免重复签到。
+        LocalDateTime checkinTime = LocalDateTime.now();
+        LambdaUpdateWrapper<ActivitySignup> updateWrapper = new LambdaUpdateWrapper<ActivitySignup>()
+                .eq(ActivitySignup::getId, signup.getId())
+                .eq(ActivitySignup::getStatus, SignupStatusEnum.PENDING)
+                .set(ActivitySignup::getStatus, SignupStatusEnum.CHECKED_IN)
+                .set(ActivitySignup::getCheckinTime, checkinTime);
+        if (!update(updateWrapper)) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "当前状态不可签到");
+        }
+    }
+
+    /**
+     * 分页查询指定活动的报名名单，并校验操作人的访问权限。
+     *
+     * <p>活动发布者本人、管理员和超级管理员可以查看；普通用户即使已报名也不能查看其他报名者信息。</p>
+     *
+     * @param activityId 活动主键
+     * @param operatorId 当前操作人的用户主键
+     * @param status 报名状态编码，为 null 时查询全部状态
+     * @param page 页码，从 1 开始
+     * @param size 每页条数，范围为 1-100
+     * @return 指定活动的报名记录分页结果
+     * @throws BusinessException 分页参数、状态编码、活动或操作人不合法，或操作人无权限
+     */
+    @Override
+    public IPage<ActivitySignup> getSignupList(Long activityId, Long operatorId, Integer status,
+                                               Integer page, Integer size) {
+        // 分页参数非法时提前终止，避免向分页插件传入无效值。
+        if (page == null || page < 1) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "页码必须大于 0");
+        }
+        if (size == null || size < 1 || size > MAX_SIGNUP_LIST_PAGE_SIZE) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "每页条数必须在 1 到 100 之间");
+        }
+
+        // 活动不存在或已逻辑删除时不允许继续查询报名名单。
+        Activity activity = activityService.getById(activityId);
+        if (activity == null) {
+            throw new BusinessException(ResultCode.DATA_NOT_FOUND);
+        }
+
+        // 通过用户服务查询操作人，逻辑删除用户会被视为不存在。
+        User operator = operatorId == null ? null : userService.getById(operatorId);
+        if (operator == null) {
+            throw new BusinessException(ResultCode.FORBIDDEN);
+        }
+        if (!Objects.equals(operator.getStatus(), 1)) {
+            throw new BusinessException(ResultCode.FORBIDDEN);
+        }
+        UserRoleEnum role = operator.getRole();
+        boolean isPublisher = Objects.equals(operatorId, activity.getPublisherId());
+        boolean isAdministrator = role == UserRoleEnum.ADMIN || role == UserRoleEnum.SUPER_ADMIN;
+        if (!isPublisher && !isAdministrator) {
+            throw new BusinessException(ResultCode.FORBIDDEN);
+        }
+
+        // 状态编码必须来自已定义的报名状态枚举。
+        SignupStatusEnum statusEnum = null;
+        if (status != null) {
+            statusEnum = SignupStatusEnum.fromCode(status);
+            if (statusEnum == null) {
+                throw new BusinessException(ResultCode.PARAM_ERROR, "报名状态不合法");
+            }
+        }
+
+        LambdaQueryWrapper<ActivitySignup> queryWrapper = new LambdaQueryWrapper<ActivitySignup>()
+                .eq(ActivitySignup::getActivityId, activityId)
+                .eq(statusEnum != null, ActivitySignup::getStatus, statusEnum)
+                // 报名时间相同时按主键升序，保证分页结果稳定。
+                .orderByAsc(ActivitySignup::getSignupTime)
+                .orderByAsc(ActivitySignup::getId);
+        return page(new Page<>(page, size), queryWrapper);
     }
 }
