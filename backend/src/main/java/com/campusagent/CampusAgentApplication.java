@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
- * 校园综合服务平台启动类。
+ * CampusAgent 后端应用启动类。
  */
 @SpringBootApplication
 @MapperScan("com.campusagent.mapper")
@@ -14,9 +14,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class CampusAgentApplication {
 
     /**
-     * 启动校园综合服务平台。
+     * 启动 Spring Boot 应用。
      *
-     * @param args 应用启动参数
+     * @param args 启动参数
      */
     public static void main(String[] args) {
         SpringApplication.run(CampusAgentApplication.class, args);
