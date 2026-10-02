@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.campusagent.common.result.Result;
 import com.campusagent.constant.RequestAttributeConstants;
+import com.campusagent.dto.response.ActivityStatisticsResponse;
 import com.campusagent.dto.response.SignupListResponse;
 import com.campusagent.entity.ActivitySignup;
 import com.campusagent.entity.User;
@@ -25,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -78,6 +80,30 @@ class ActivitySignupControllerTest {
                         """, true));
 
         verify(activitySignupService).checkin(11L, 7L);
+    }
+
+    /**
+     * 统计接口应从路径和请求属性读取参数，并将统计结果返回为统一响应。
+     *
+     * @throws Exception MockMvc 调用异常
+     */
+    @Test
+    void statisticsEndpointDelegatesToService() throws Exception {
+        ActivityStatisticsResponse statistics = new ActivityStatisticsResponse();
+        statistics.setActivityId(11L);
+        statistics.setActivityTitle("校园篮球赛");
+        statistics.setTotalSignups(5L);
+        statistics.setCheckedIn(2L);
+        when(activitySignupService.getStatistics(11L, 7L)).thenReturn(statistics);
+
+        mockMvc.perform(get("/api/activity/signup/statistics/11")
+                        .requestAttr(RequestAttributeConstants.USER_ID, 7L))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {"code":200,"message":"操作成功","data":{"activityId":11,"activityTitle":"校园篮球赛","totalSignups":5,"checkedIn":2}}
+                        """, false));
+
+        verify(activitySignupService).getStatistics(11L, 7L);
     }
 
     /**

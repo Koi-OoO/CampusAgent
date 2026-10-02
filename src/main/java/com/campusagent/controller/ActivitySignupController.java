@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.campusagent.common.result.Result;
 import com.campusagent.constant.RequestAttributeConstants;
 import com.campusagent.dto.request.ActivitySignupRequest;
+import com.campusagent.dto.response.ActivityStatisticsResponse;
 import com.campusagent.dto.response.MySignupResponse;
 import com.campusagent.dto.response.SignupListResponse;
 import com.campusagent.entity.Activity;
@@ -177,6 +178,22 @@ public class ActivitySignupController {
         IPage<SignupListResponse> responsePage = signupPage.convert(this::buildSignupListResponse);
         fillUserInfo(responsePage.getRecords());
         return Result.success(responsePage);
+    }
+
+    /**
+     * 查看活动报名统计接口。
+     *
+     * <p>服务层负责校验活动存在性和当前操作人的访问权限，控制器只负责接收路径参数和返回统一响应。</p>
+     *
+     * @param activityId 活动主键
+     * @param operatorId 登录拦截器写入的当前操作人主键
+     * @return 活动报名统计数据
+     */
+    @GetMapping("/statistics/{activityId}")
+    public Result<ActivityStatisticsResponse> getStatistics(
+            @PathVariable Long activityId,
+            @RequestAttribute(RequestAttributeConstants.USER_ID) Long operatorId) {
+        return Result.success(activitySignupService.getStatistics(activityId, operatorId));
     }
 
     /**

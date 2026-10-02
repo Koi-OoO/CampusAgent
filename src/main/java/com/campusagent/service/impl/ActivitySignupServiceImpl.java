@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.campusagent.common.exception.BusinessException;
 import com.campusagent.common.result.ResultCode;
+import com.campusagent.dto.response.ActivityStatisticsResponse;
 import com.campusagent.entity.Activity;
 import com.campusagent.entity.ActivitySignup;
 import com.campusagent.entity.User;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -346,5 +348,92 @@ public class ActivitySignupServiceImpl extends ServiceImpl<ActivitySignupMapper,
                 .orderByAsc(ActivitySignup::getSignupTime)
                 .orderByAsc(ActivitySignup::getId);
         return page(new Page<>(page, size), queryWrapper);
+    }
+
+    /**
+     * 查询指定活动的报名统计数据，并校验当前操作人的访问权限。
+     *
+     * <p>活动发布者本人、管理员和超级管理员可以查看统计；统计数据只包含未被逻辑删除的报名记录。
+     * 报名率使用活动当前有效报名人数除以报名上限，不限人数活动返回 null；
+     * 签到率使用已签到数量除以报名记录总数，没有报名记录时返回 null。</p>
+     *
+     * @param activityId 活动主键
+     * @param operatorId 当前操作人的用户主键
+     * @return 活动报名统计响应对象
+     * @throws BusinessException 活动不存在、操作人不存在或操作人无权限
+     */
+    @Override
+    public ActivityStatisticsResponse getStatistics(Long activityId, Long operatorId) {
+        Activity activity = activityService.getById(activityId);
+        if (activity == null) {
+            throw new BusinessException(ResultCode.DATA_NOT_FOUND);
+        }
+
+        checkStatisticsPermission(activity, operatorId);
+
+        LambdaQueryWrapper<ActivitySignup> queryWrapper = new LambdaQueryWrapper<ActivitySignup>()
+                .eq(ActivitySignup::getActivityId, activityId);
+        List<ActivitySignup> signups = list(queryWrapper);
+        long totalSignups = signups.size();
+        long checkedIn = signups.stream()
+                .filter(signup -> signup.getStatus() == SignupStatusEnum.CHECKED_IN)
+                .count();
+        long absent = signups.stream()
+                .filter(signup -> signup.getStatus() == SignupStatusEnum.ABSENT)
+                .count();
+        long cancelled = signups.stream()
+                .filter(signup -> signup.getStatus() == SignupStatusEnum.CANCELLED)
+                .count();
+
+        ActivityStatisticsResponse response = new ActivityStatisticsResponse();
+        response.setActivityId(activity.getId());
+        response.setActivityTitle(activity.getTitle());
+        response.setMaxParticipants(activity.getMaxParticipants());
+        response.setCurrentParticipants(activity.getCurrentParticipants());
+        response.setTotalSignups(totalSignups);
+        response.setCheckedIn(checkedIn);
+        response.setAbsent(absent);
+        response.setCancelled(cancelled);
+        response.setSignupRate(calculateSignupRate(activity));
+        response.setCheckinRate(totalSignups == 0 ? null : (double) checkedIn / totalSignups);
+        return response;
+    }
+
+    /**
+     * 校验报名统计查询权限。
+     *
+     * <p>逻辑删除用户由用户服务视为不存在；禁用用户即使仍持有有效登录凭证，也不能继续查看统计信息。</p>
+     *
+     * @param activity 待查询统计的活动
+     * @param operatorId 当前操作人的用户主键
+     * @throws BusinessException 操作人不存在、已禁用或无权限
+     */
+    private void checkStatisticsPermission(Activity activity, Long operatorId) {
+        User operator = operatorId == null ? null : userService.getById(operatorId);
+        if (operator == null || !Objects.equals(operator.getStatus(), 1)) {
+            throw new BusinessException(ResultCode.FORBIDDEN);
+        }
+
+        UserRoleEnum role = operator.getRole();
+        boolean isPublisher = Objects.equals(operatorId, activity.getPublisherId());
+        boolean isAdministrator = role == UserRoleEnum.ADMIN || role == UserRoleEnum.SUPER_ADMIN;
+        if (!isPublisher && !isAdministrator) {
+            throw new BusinessException(ResultCode.FORBIDDEN);
+        }
+    }
+
+    /**
+     * 计算活动报名率。
+     *
+     * @param activity 活动实体
+     * @return 当前报名人数除以报名上限；不限人数或上限为空时返回 null
+     */
+    private Double calculateSignupRate(Activity activity) {
+        Integer maxParticipants = activity.getMaxParticipants();
+        if (maxParticipants == null || maxParticipants == UNLIMITED_PARTICIPANTS) {
+            return null;
+        }
+        Integer currentParticipants = activity.getCurrentParticipants();
+        return (currentParticipants == null ? 0D : currentParticipants.doubleValue()) / maxParticipants;
     }
 }

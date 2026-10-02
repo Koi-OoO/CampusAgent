@@ -1,6 +1,7 @@
 package com.campusagent.service;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -12,6 +13,7 @@ import com.campusagent.common.result.ResultCode;
 import com.campusagent.entity.Activity;
 import com.campusagent.entity.ActivitySignup;
 import com.campusagent.entity.User;
+import com.campusagent.dto.response.ActivityStatisticsResponse;
 import com.campusagent.enums.ActivityStatusEnum;
 import com.campusagent.enums.SignupStatusEnum;
 import com.campusagent.enums.UserRoleEnum;
@@ -25,6 +27,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.lang.reflect.Field;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -363,6 +366,89 @@ class ActivitySignupServiceImplTest {
         String sqlSegment = wrapperCaptor.getValue().getSqlSegment();
         assertThat(sqlSegment).contains("activity_id", "status");
         assertThat(sqlSegment).contains("ORDER BY signup_time ASC,id ASC");
+    }
+
+    /**
+     * 有权限的操作人查询报名统计时，应正确统计各状态数量和比例。
+     */
+    @Test
+    void getStatisticsCalculatesCountsAndRates() {
+        ActivitySignupServiceImpl spy = spy(activitySignupService);
+        Activity statisticActivity = activity(1L, 7L, ActivityStatusEnum.ENDED);
+        statisticActivity.setTitle("校园篮球赛");
+        statisticActivity.setMaxParticipants(100);
+        statisticActivity.setCurrentParticipants(40);
+        when(activityService.getById(1L)).thenReturn(statisticActivity);
+        when(userService.getById(7L)).thenReturn(user(7L, UserRoleEnum.USER));
+        doReturn(List.of(
+                signup(SignupStatusEnum.PENDING),
+                signup(SignupStatusEnum.CHECKED_IN),
+                signup(SignupStatusEnum.CHECKED_IN),
+                signup(SignupStatusEnum.ABSENT),
+                signup(SignupStatusEnum.CANCELLED)
+        )).when(spy).list(any(LambdaQueryWrapper.class));
+
+        ActivityStatisticsResponse response = spy.getStatistics(1L, 7L);
+
+        assertThat(response.getActivityId()).isEqualTo(1L);
+        assertThat(response.getActivityTitle()).isEqualTo("校园篮球赛");
+        assertThat(response.getMaxParticipants()).isEqualTo(100);
+        assertThat(response.getCurrentParticipants()).isEqualTo(40);
+        assertThat(response.getTotalSignups()).isEqualTo(5L);
+        assertThat(response.getCheckedIn()).isEqualTo(2L);
+        assertThat(response.getAbsent()).isEqualTo(1L);
+        assertThat(response.getCancelled()).isEqualTo(1L);
+        assertThat(response.getSignupRate()).isEqualTo(0.4D);
+        assertThat(response.getCheckinRate()).isEqualTo(0.4D);
+    }
+
+    /**
+     * 查询报名统计时活动不存在，应返回数据不存在。
+     */
+    @Test
+    void getStatisticsThrowsDataNotFoundWhenActivityMissing() {
+        when(activityService.getById(1L)).thenReturn(null);
+
+        assertThatThrownBy(() -> activitySignupService.getStatistics(1L, 7L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(((BusinessException) exception).getCode())
+                                .isEqualTo(ResultCode.DATA_NOT_FOUND.getCode()));
+    }
+
+    /**
+     * 非活动发布者且非管理员查询报名统计时，应返回无权限。
+     */
+    @Test
+    void getStatisticsRejectsUnauthorizedOperator() {
+        when(activityService.getById(1L)).thenReturn(activity(1L, 7L, ActivityStatusEnum.ENDED));
+        when(userService.getById(8L)).thenReturn(user(8L, UserRoleEnum.USER));
+
+        assertThatThrownBy(() -> activitySignupService.getStatistics(1L, 8L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(((BusinessException) exception).getCode())
+                                .isEqualTo(ResultCode.FORBIDDEN.getCode()));
+    }
+
+    /**
+     * 报名上限或报名记录为零时，相应比例应返回空值。
+     */
+    @Test
+    void getStatisticsReturnsNullRatesWhenDenominatorIsZero() {
+        Activity statisticActivity = activity(1L, 7L, ActivityStatusEnum.ENDED);
+        statisticActivity.setMaxParticipants(0);
+        statisticActivity.setCurrentParticipants(0);
+        when(activityService.getById(1L)).thenReturn(statisticActivity);
+        when(userService.getById(7L)).thenReturn(user(7L, UserRoleEnum.USER));
+
+        ActivitySignupServiceImpl spy = spy(activitySignupService);
+        doReturn(List.of()).when(spy).list(any(LambdaQueryWrapper.class));
+
+        ActivityStatisticsResponse response = spy.getStatistics(1L, 7L);
+
+        assertThat(response.getSignupRate()).isNull();
+        assertThat(response.getCheckinRate()).isNull();
     }
 
     /**

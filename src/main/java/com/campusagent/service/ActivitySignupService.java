@@ -3,6 +3,7 @@ package com.campusagent.service;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.campusagent.common.exception.BusinessException;
+import com.campusagent.dto.response.ActivityStatisticsResponse;
 import com.campusagent.entity.ActivitySignup;
 import com.campusagent.enums.SignupStatusEnum;
 
@@ -78,4 +79,16 @@ public interface ActivitySignupService extends IService<ActivitySignup> {
      * @throws BusinessException 分页参数、状态编码、活动或操作人不合法，或操作人无权限
      */
     IPage<ActivitySignup> getSignupList(Long activityId, Long operatorId, Integer status, Integer page, Integer size);
+
+    /**
+     * 查询指定活动的报名统计数据。
+     *
+     * <p>仅活动发布者本人、管理员和超级管理员可以查询统计数据；统计结果基于未被逻辑删除的报名记录计算。</p>
+     *
+     * @param activityId 活动主键
+     * @param operatorId 当前操作人的用户主键
+     * @return 活动报名统计响应对象
+     * @throws BusinessException 活动不存在、操作人不存在或操作人无权限
+     */
+    ActivityStatisticsResponse getStatistics(Long activityId, Long operatorId);
 }
