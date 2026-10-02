@@ -12,10 +12,13 @@ import com.campusagent.dto.response.ActivityListResponse;
 import com.campusagent.entity.Activity;
 import com.campusagent.entity.ActivityAuditLog;
 import com.campusagent.entity.ActivityCategory;
+import com.campusagent.entity.ActivitySignup;
 import com.campusagent.entity.User;
 import com.campusagent.enums.ActivityStatusEnum;
+import com.campusagent.enums.SignupStatusEnum;
 import com.campusagent.mapper.ActivityAuditLogMapper;
 import com.campusagent.mapper.ActivityMapper;
+import com.campusagent.mapper.ActivitySignupMapper;
 import com.campusagent.service.ActivityCategoryService;
 import com.campusagent.service.ActivityService;
 import com.campusagent.service.UserService;
@@ -71,20 +74,26 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     /** 用户服务，用于详情中查询发布人姓名及报名状态。 */
     private final UserService userService;
 
+    /** 活动报名数据访问接口，用于详情中查询当前用户报名状态。 */
+    private final ActivitySignupMapper activitySignupMapper;
+
     /**
-     * 创建活动服务，通过构造器注入数据访问接口、分类服务及用户服务。
+     * 创建活动服务，通过构造器注入数据访问接口、分类服务、用户服务及报名数据访问接口。
      *
      * @param activityMapper 活动数据访问接口
      * @param activityAuditLogMapper 审核记录数据访问接口
      * @param activityCategoryService 活动分类服务
      * @param userService 用户服务
+     * @param activitySignupMapper 活动报名数据访问接口
      */
     public ActivityServiceImpl(ActivityMapper activityMapper, ActivityAuditLogMapper activityAuditLogMapper,
-                               ActivityCategoryService activityCategoryService, UserService userService) {
+                               ActivityCategoryService activityCategoryService, UserService userService,
+                               ActivitySignupMapper activitySignupMapper) {
         this.baseMapper = activityMapper;
         this.activityAuditLogMapper = activityAuditLogMapper;
         this.activityCategoryService = activityCategoryService;
         this.userService = userService;
+        this.activitySignupMapper = activitySignupMapper;
     }
 
     /**
@@ -243,7 +252,7 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
      * 查询公开活动详情，浏览次数通过数据库原子自增，避免并发读取覆盖。
      *
      * <p>活动不存在或处于非公开状态（草稿、待审核、已驳回、已取消）时统一返回数据不存在；
-     * 当前用户报名状态依赖 Phase 2-7 的活动报名记录，落地前暂时返回 null。</p>
+     * 当前用户未登录或未报名时，当前用户报名状态返回 null。</p>
      *
      * @param activityId 待查询的活动主键
      * @param currentUserId 当前登录用户主键，未登录时为 null
@@ -293,8 +302,8 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
         response.setCategoryName(resolveCategoryName(activity.getCategoryId()));
         response.setPublisherName(resolvePublisherName(activity.getPublisherId()));
 
-        // TODO Phase 2-7 活动报名记录表建立后，按 currentUserId 查询报名状态并填充。
-        response.setCurrentUserSignupStatus(null);
+        SignupStatusEnum signupStatus = resolveCurrentUserSignupStatus(activityId, currentUserId);
+        response.setCurrentUserSignupStatus(signupStatus == null ? null : signupStatus.getCode());
         return response;
     }
 
@@ -616,6 +625,24 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
             return null;
         }
         return StringUtils.hasText(publisher.getRealName()) ? publisher.getRealName() : publisher.getUsername();
+    }
+
+    /**
+     * 查询当前用户对活动的报名状态，未登录或未报名时返回 null。
+     *
+     * @param activityId 活动主键
+     * @param currentUserId 当前登录用户主键，未登录时为 null
+     * @return 当前用户报名状态
+     */
+    private SignupStatusEnum resolveCurrentUserSignupStatus(Long activityId, Long currentUserId) {
+        if (currentUserId == null) {
+            return null;
+        }
+        LambdaQueryWrapper<ActivitySignup> queryWrapper = new LambdaQueryWrapper<ActivitySignup>()
+                .eq(ActivitySignup::getActivityId, activityId)
+                .eq(ActivitySignup::getUserId, currentUserId);
+        ActivitySignup signup = activitySignupMapper.selectOne(queryWrapper);
+        return signup == null ? null : signup.getStatus();
     }
 
     /**

@@ -87,6 +87,18 @@ public class ActivitySignupServiceImpl extends ServiceImpl<ActivitySignupMapper,
         if (activity.getStatus() != ActivityStatusEnum.NOT_STARTED) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "当前活动不可报名");
         }
+        // 锁定当前用户已有报名记录，取消状态允许复用，其它状态仍视为重复报名。
+        LambdaQueryWrapper<ActivitySignup> existingQuery = new LambdaQueryWrapper<ActivitySignup>()
+                .eq(ActivitySignup::getActivityId, activityId)
+                .eq(ActivitySignup::getUserId, userId)
+                .last("FOR UPDATE");
+        ActivitySignup existingSignup = getOne(existingQuery);
+        boolean reactivateCancelled = existingSignup != null
+                && existingSignup.getStatus() == SignupStatusEnum.CANCELLED;
+        if (existingSignup != null && !reactivateCancelled) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "请勿重复报名");
+        }
+
         // 报名时间必须不晚于报名截止时间。
         LocalDateTime now = LocalDateTime.now();
         if (activity.getSignupDeadline() == null || now.isAfter(activity.getSignupDeadline())) {
@@ -112,6 +124,23 @@ public class ActivitySignupServiceImpl extends ServiceImpl<ActivitySignupMapper,
             if (!activityService.update(consumeWrapper)) {
                 throw new BusinessException(ResultCode.PARAM_ERROR, "名额已满或报名已截止");
             }
+        }
+
+        // 首次报名新增记录；取消后重新报名复用原记录，避免破坏活动与用户唯一约束。
+        if (reactivateCancelled) {
+            LambdaUpdateWrapper<ActivitySignup> reactivateWrapper = new LambdaUpdateWrapper<ActivitySignup>()
+                    .eq(ActivitySignup::getId, existingSignup.getId())
+                    .eq(ActivitySignup::getActivityId, activityId)
+                    .eq(ActivitySignup::getUserId, userId)
+                    .eq(ActivitySignup::getStatus, SignupStatusEnum.CANCELLED)
+                    .set(ActivitySignup::getFormData, formData)
+                    .set(ActivitySignup::getStatus, SignupStatusEnum.PENDING)
+                    .set(ActivitySignup::getSignupTime, now)
+                    .set(ActivitySignup::getCheckinTime, null);
+            if (!update(reactivateWrapper)) {
+                throw new BusinessException(ResultCode.SYSTEM_ERROR, "报名失败，请重试");
+            }
+            return;
         }
 
         // 写入报名记录，初始状态为待签到。

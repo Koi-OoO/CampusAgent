@@ -37,6 +37,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -95,6 +96,74 @@ class ActivitySignupServiceImplTest {
                         assertThat(((BusinessException) exception).getCode())
                                 .isEqualTo(ResultCode.DATA_NOT_FOUND.getCode()));
         verify(activityService, never()).getById(any(Long.class));
+    }
+
+    /**
+     * 取消后的报名记录应被复用，重新报名后恢复为待签到状态并更新表单。
+     */
+    @Test
+    void signupReactivatesCancelledSignup() {
+        ActivitySignupServiceImpl spy = spy(activitySignupService);
+        ActivitySignup cancelled = signup(SignupStatusEnum.CANCELLED);
+        cancelled.setId(100L);
+        cancelled.setFormData("{\"old\":\"value\"}");
+        doReturn(cancelled).when(spy).getOne(any());
+        when(activityService.getById(1L)).thenReturn(signupActivity());
+        when(activityService.update(any(LambdaUpdateWrapper.class))).thenReturn(true);
+        doReturn(true).when(spy).update(any(LambdaUpdateWrapper.class));
+
+        spy.signup(1L, 7L, "{\"new\":\"value\"}");
+
+        ArgumentCaptor<LambdaUpdateWrapper<ActivitySignup>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(spy).update(captor.capture());
+        LambdaUpdateWrapper<ActivitySignup> updateWrapper = captor.getValue();
+        assertThat(updateWrapper.getParamNameValuePairs().values())
+                .contains(SignupStatusEnum.PENDING, "{\"new\":\"value\"}");
+        assertThat(updateWrapper.getSqlSegment()).contains("status");
+        verify(spy, never()).save(any(ActivitySignup.class));
+    }
+
+    /**
+     * 按真实业务顺序执行取消后重新报名，验证同一报名记录可以恢复为待签到。
+     */
+    @Test
+    void cancelThenSignupRestoresPendingStatus() {
+        ActivitySignupServiceImpl spy = spy(activitySignupService);
+        ActivitySignup pending = signup(SignupStatusEnum.PENDING);
+        ActivitySignup cancelled = signup(SignupStatusEnum.CANCELLED);
+        cancelled.setId(pending.getId());
+        doReturn(pending, cancelled).when(spy).getOne(any());
+        when(activityService.getById(1L)).thenReturn(signupActivity());
+        when(activityService.update(any(LambdaUpdateWrapper.class))).thenReturn(true);
+        doReturn(true).when(spy).update(any(LambdaUpdateWrapper.class));
+
+        spy.cancelSignup(1L, 7L);
+        spy.signup(1L, 7L, "{\"name\":\"rejoined\"}");
+
+        ArgumentCaptor<LambdaUpdateWrapper<ActivitySignup>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(spy, times(2)).update(captor.capture());
+        assertThat(captor.getAllValues().get(1).getParamNameValuePairs().values())
+                .contains(SignupStatusEnum.PENDING, "{\"name\":\"rejoined\"}");
+        verify(spy, never()).save(any(ActivitySignup.class));
+    }
+
+    /**
+     * 待签到、已签到或已缺席记录不能重复报名。
+     */
+    @Test
+    void signupRejectsExistingActiveSignup() {
+        ActivitySignupServiceImpl spy = spy(activitySignupService);
+        doReturn(signup(SignupStatusEnum.PENDING)).when(spy).getOne(any());
+        when(activityService.getById(1L)).thenReturn(signupActivity());
+
+        assertThatThrownBy(() -> spy.signup(1L, 7L, "{\"name\":\"test\"}"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(((BusinessException) exception).getMessage()).isEqualTo("请勿重复报名"));
+        verify(activityService, never()).update(any(LambdaUpdateWrapper.class));
+        verify(spy, never()).save(any(ActivitySignup.class));
     }
 
     /**
@@ -491,6 +560,19 @@ class ActivitySignupServiceImplTest {
         activity.setId(activityId);
         activity.setPublisherId(publisherId);
         activity.setStatus(status);
+        return activity;
+    }
+
+    /**
+     * 构造可报名活动。
+     *
+     * @return 未开始且尚未截止的活动
+     */
+    private static Activity signupActivity() {
+        Activity activity = activity(1L, 7L, ActivityStatusEnum.NOT_STARTED);
+        activity.setSignupDeadline(LocalDateTime.now().plusHours(1));
+        activity.setMaxParticipants(20);
+        activity.setCurrentParticipants(3);
         return activity;
     }
 
