@@ -21,6 +21,14 @@ public interface UserService extends IService<User> {
     User getByUsername(String username);
 
     /**
+     * 根据学号查询未被逻辑删除的用户。
+     *
+     * @param studentId 待查询的学号
+     * @return 匹配的用户，不存在时返回 null
+     */
+    User getByStudentId(String studentId);
+
+    /**
      * 根据用户主键查询未被逻辑删除的用户。
      *
      * @param id 用户主键，对应数据库 BIGINT 类型

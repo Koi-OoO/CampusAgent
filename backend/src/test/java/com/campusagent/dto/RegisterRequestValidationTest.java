@@ -40,6 +40,60 @@ class RegisterRequestValidationTest {
     }
 
     @Test
+    void rejectsMissingRealName() {
+        RegisterRequest request = validRequest();
+        request.setRealName("");
+        assertThat(VALIDATOR.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .contains("真实姓名不能为空");
+    }
+
+    @Test
+    void rejectsMissingStudentId() {
+        RegisterRequest request = validRequest();
+        request.setStudentId("");
+        assertThat(VALIDATOR.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .contains("学号不能为空");
+    }
+
+    @Test
+    void rejectsMissingCollege() {
+        RegisterRequest request = validRequest();
+        request.setCollege("");
+        assertThat(VALIDATOR.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .contains("学院不能为空");
+    }
+
+    @Test
+    void rejectsUsernameWithUnsupportedCharacters() {
+        RegisterRequest request = validRequest();
+        request.setUsername("中文用户名");
+        assertThat(VALIDATOR.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .contains("用户名只能包含字母、数字和下划线，且必须以字母开头");
+    }
+
+    @Test
+    void rejectsWeakPassword() {
+        RegisterRequest request = validRequest();
+        request.setPassword("123456");
+        assertThat(VALIDATOR.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .contains("密码必须同时包含字母和数字");
+    }
+
+    @Test
+    void rejectsInvalidStudentId() {
+        RegisterRequest request = validRequest();
+        request.setStudentId("学号-001");
+        assertThat(VALIDATOR.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .contains("学号只能包含字母和数字");
+    }
+
+    @Test
     void rejectsInvalidPhone() {
         RegisterRequest request = validRequest();
         request.setPhone("12345");
@@ -56,7 +110,11 @@ class RegisterRequestValidationTest {
     private static RegisterRequest validRequest() {
         RegisterRequest request = new RegisterRequest();
         request.setUsername("testuser");
-        request.setPassword("123456");
+        request.setPassword("abc123");
+        request.setConfirmPassword("abc123");
+        request.setRealName("测试用户");
+        request.setStudentId("20260001");
+        request.setCollege("计算机学院");
         return request;
     }
 }

@@ -136,6 +136,8 @@ SOURCE backend/sql/phase1_user.sql;
 
 脚本在不存在时创建 `campus` 库和 `user` 表，使用 InnoDB 与 utf8mb4，不删除或重建已有表。已有表的结构变更需要另行编写迁移 SQL。
 
+如果 `user` 表已经存在，请执行 `sql/phase1_user_student_id_unique.sql` 为学号补充唯一约束。该脚本可重复执行；如果库中存在重复学号，脚本会停止并提示先处理重复数据，不会自动删除用户记录。
+
 - `User` 映射全部用户字段，使用数据库自增主键；`UserMapper` 和 `UserService` 提供 MyBatis-Plus 的基础数据访问能力。
 - `User.role` 使用 `UserRoleEnum`，通过 `@EnumValue` 按整数编码存储：`USER=0`、`ADMIN=1`、`SUPER_ADMIN=2`。`fromCode` 对 null 或未知编码返回 null。
 - `status` 和 `isDeleted` 使用 `Integer`。`User` 在 `isDeleted` 上显式声明 `@TableLogic(value = "0", delval = "1")`，优先于全局 `deleted` 字段约定；普通查询自动过滤逻辑删除记录。

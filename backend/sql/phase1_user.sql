@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS `user` (
     `username` VARCHAR(50) NOT NULL UNIQUE,
     `password` VARCHAR(255) NOT NULL,
     `real_name` VARCHAR(50),
-    `student_id` VARCHAR(20),
+    `student_id` VARCHAR(20) UNIQUE,
     `college` VARCHAR(100),
     `phone` VARCHAR(20),
     `avatar` VARCHAR(255),

@@ -44,6 +44,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     /**
+     * 根据学号查询用户，供注册时执行学号唯一性校验。
+     *
+     * @param studentId 待查询的学号
+     * @return 未被逻辑删除的用户，不存在时返回 null
+     */
+    @Override
+    public User getByStudentId(String studentId) {
+        LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<User>()
+                .eq(User::getStudentId, studentId);
+        return getOne(queryWrapper);
+    }
+
+    /**
      * 根据用户主键查询用户，直接委托父类实现。
      *
      * @param id 用户主键

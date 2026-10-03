@@ -11,8 +11,11 @@ import com.campusagent.service.AuthService;
 import com.campusagent.service.UserService;
 import com.campusagent.utils.JwtUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.Objects;
 
 /**
  * 认证服务实现类，负责注册、登录签发 Token 和当前用户信息查询。
@@ -61,11 +64,19 @@ public class AuthServiceImpl implements AuthService {
      */
     @Override
     public UserInfoResponse register(RegisterRequest request) {
+        if (!Objects.equals(request.getPassword(), request.getConfirmPassword())) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "两次输入的密码不一致");
+        }
+
         // 用户名唯一性校验放在事务提交前，避免数据库唯一约束触发后的处理成本。
         User existing = userService.getByUsername(request.getUsername());
         // 用户名已存在时直接终止注册流程。
         if (existing != null) {
             throw new BusinessException(ResultCode.USERNAME_EXISTS);
+        }
+
+        if (userService.getByStudentId(request.getStudentId()) != null) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "学号已注册");
         }
 
         User user = new User();
@@ -81,8 +92,13 @@ public class AuthServiceImpl implements AuthService {
         // 新注册账号默认启用。
         user.setStatus(1);
 
-        // 保存失败时依赖数据库事务回滚，异常继续向上抛出。
-        userService.save(user);
+        // 应用层预检查之外，数据库唯一约束负责兜住并发注册。
+        try {
+            userService.save(user);
+        } catch (DataIntegrityViolationException exception) {
+            log.warn("注册触发唯一约束，用户名：{}，学号：{}", user.getUsername(), user.getStudentId());
+            throw new BusinessException(ResultCode.PARAM_ERROR, "用户名或学号已注册");
+        }
         log.info("用户注册成功，用户名：{}，用户主键：{}", user.getUsername(), user.getId());
         // 响应体中不包含密码字段。
         return buildUserInfoResponse(user);
